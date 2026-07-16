@@ -1,0 +1,156 @@
+Language:
+     GramatikaGrammar.
+Preamble:
+     ‘‘
+#include <fstream>
+#include <list>
+#include <string>
+#include "Gramatika/ParserData.h"
+#include "Gramatika/ItemAttributes.h"
+#include "Toolbox/PathName.h"
+
+  using Toolbox::PathName;
+
+inline string stripQuotes(string const& s)
+    { return s.substr(2, s.size()-4); }
+inline string stripParentheses(string const& s)
+    { return s.substr(1, s.size()-2); }
+     ’’.
+Terminals:
+     "lexistab.h".
+Nonterminals:
+     file (symbolTable), leftHandSide (symbol), languagePart (language),
+     nonterminalDeclaration, nonterminalIdentifierList,
+     nonterminalsPart, postamblePart, preamblePart,
+     production (production), productionsPart,
+     rightHandSide (productionList), rule, ruleList,
+     startPart, symbol (symbol), symbolList (production),
+     terminalDeclaration, terminalIdentifierList, terminalsPart.
+Start:
+     file.
+Productions:
+     file = languagePart preamblePart terminalsPart nonterminalsPart startPart
+         productionsPart postamblePart
+              ‘‘
+                  string* language = $languagePart;
+                  symbolTable->setLanguage(*language);
+                  delete language;
+                  $$ = symbolTable;
+              ’’.
+     languagePart =
+              ‘‘
+                 $$ = new string("UserDefined");
+              ’’
+         | language colon identifier period
+              ‘‘
+                 $$ = new string($identifier.getLexeme());
+              ’’
+         .
+     preamblePart =
+         | preamble colon action period
+              ‘‘
+                  symbolTable->setPreamble(
+                      stripQuotes($action.getLexeme()));
+              ’’.
+     terminalsPart =
+         terminals colon period
+         | terminals colon stringT period
+              ‘‘
+                 PathName terminalsFileName($stringT.getLexeme());
+                 terminalsFileName = terminalsFileName.substr(
+                     1,terminalsFileName.size()-2);
+
+                   cerr << " (Reading terminals file: " << terminalsFileName;
+                   ifstream terminalsFile(terminalsFileName.c_str());
+
+                   symbolTable->getTerminalSymbols(terminalsFile);
+                   cerr << ".)";
+              ’’
+         | terminals colon terminalIdentifierList period.
+     terminalIdentifierList =
+         terminalDeclaration
+         | terminalIdentifierList comma terminalDeclaration.
+     terminalDeclaration =
+         identifier
+              ‘‘
+                  symbolTable->declareTerminal($identifier.getLexeme());
+              ’’.
+     nonterminalsPart = nonterminals colon
+         nonterminalIdentifierList period.
+     nonterminalIdentifierList =
+         nonterminalDeclaration
+         | nonterminalIdentifierList comma nonterminalDeclaration.
+     nonterminalDeclaration =
+         identifier
+              ‘‘
+                  symbolTable->declareNonterminal($identifier.getLexeme());
+              ’’
+         | identifier field
+              ‘‘
+                  symbolTable->declareNonterminal($identifier.getLexeme(),
+                      stripParentheses($field.getLexeme()));
+              ’’.
+     startPart = start colon identifier period
+              ‘‘
+                  symbolTable->declareStartSymbol($identifier.getLexeme());
+              ’’.
+     productionsPart = productions colon ruleList.
+     ruleList =
+         rule
+         | ruleList rule.
+     rule =
+         identifier equal rightHandSide period
+              ‘‘
+                  assert($rightHandSide != 0);
+                  symbolTable->declareProductions($identifier.getLexeme(),
+                       *$rightHandSide);
+                  delete $rightHandSide;
+              ’’.
+     rightHandSide =
+         production
+              ‘‘
+                  list<Production*>* result = new list<Production*>();
+                  result->push_back($production);
+                  $$ = result;
+              ’’
+         | rightHandSide verticalBar production
+              ‘‘
+                  assert($rightHandSide != 0);
+                  $rightHandSide->push_back($production);
+                  $$ = $rightHandSide;
+              ’’.
+     production =
+         symbolList
+              ‘‘
+                  $$ = $symbolList;
+              ’’
+         | symbolList action
+              ‘‘
+                  assert($symbolList != 0);
+                  $symbolList->setAction(stripQuotes($action.getLexeme()));
+                  $$ = $symbolList;
+              ’’.
+     symbolList =
+              ‘‘
+                  Production* result = new Production();
+                  $$ = result;
+              ’’
+         | symbolList symbol
+              ‘‘
+                  assert($symbolList != 0);
+                  $symbolList->add($symbol);
+                  $$ = $symbolList;
+              ’’.
+     symbol =
+         identifier
+              ‘‘
+                  Symbol* result = symbolTable->getSymbol(
+                       $identifier.getLexeme());
+                  $$ = result;
+              ’’.
+     postamblePart =
+         | postamble colon action period
+              ‘‘
+                  symbolTable->setPostamble(
+                       stripQuotes($action.getLexeme()));
+              ’’.

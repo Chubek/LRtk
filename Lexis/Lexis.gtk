@@ -1,0 +1,239 @@
+Language:
+     LexisGrammar.
+Preamble:
+     ‘‘
+#include <stdint.h>
+#include "Lexis/ParserData.h"
+#include "Lexis/ItemAttributes.h"
+#include "Toolbox/CharacterSet.h"
+#include "Toolbox/EscapeSequence.h"
+
+  using Lexis::NFA;
+     ’’.
+Terminals:
+     "lexistab.h".
+Nonterminals:
+     alternation (nfa), alternative (nfa), auxiliaryDefinition,
+     auxiliaryDefinitionList, auxiliaryDefinitionsPart,
+     expression (nfa), file (nfa), item (nfa),
+     languageDefinitionPart (language), tokenDefinition (nfa),
+     tokenDefinitionList (nfa), tokenDefinitionsPart (nfa).
+Start:
+     file.
+Productions:
+     file =
+          languageDefinitionPart auxiliaryDefinitionsPart tokenDefinitionsPart
+              ‘‘
+                  NFA* nfa = $tokenDefinitionsPart;
+                  nfa->setLanguage($languageDefinitionPart);
+                  $$ = nfa;
+              ’’.
+     languageDefinitionPart =
+              ‘‘
+                  $$ = "UserDefined";
+              ’’
+          | language colon identifier period
+              ‘‘
+                  $$ = $identifier.getLexeme();
+              ’’
+          .
+     auxiliaryDefinitionsPart =
+          | definitions colon auxiliaryDefinitionList.
+     auxiliaryDefinitionList =
+          | auxiliaryDefinitionList auxiliaryDefinition.
+     auxiliaryDefinition =
+          identifier equal expression period
+              ‘‘
+                  HashTable<string,NFA*>::const_iterator ptr =
+                      definitionsTable.find($identifier.getLexeme()), null;
+                  if (ptr != null)
+                      cerr << "Error: " << $identifier.getLexeme() <<
+                          " multiply defined.\n";
+                  definitionsTable.add(
+                      $identifier.getLexeme(), $expression);
+              ’’.
+     tokenDefinitionsPart =
+              ‘‘
+                  $$ = 0;
+              ’’
+          | tokens colon tokenDefinitionList
+              ‘‘
+                  $$ = $tokenDefinitionList;
+              ’’.
+     tokenDefinitionList =
+              ‘‘
+                  $$ = 0;
+              ’’
+          | tokenDefinitionList tokenDefinition
+              ‘‘
+                  NFA* result = 0;
+                  if ($tokenDefinitionList == 0)
+                  {
+                       result = $tokenDefinition;
+                  }
+                  else
+                  {
+                       assert($tokenDefinition != 0);
+                       result = new NFA(
+                           *$tokenDefinitionList | *$tokenDefinition);
+                      delete $tokenDefinitionList;
+                      delete $tokenDefinition;
+                  }
+                  $$ = result;
+              ’’.
+     tokenDefinition =
+          equal expression period
+              ‘‘
+                  $expression->setAction(Lexis::discard);
+                  $$ = $expression;
+              ’’
+          | identifier equal expression period
+              ‘‘
+                  $expression->setAction(Lexis::accept);
+                  $expression->setToken($identifier.getLexeme());
+                  $$ = $expression;
+              ’’.
+     expression =
+         alternation
+             ‘‘
+                 $$ = $alternation;
+             ’’
+         | circumflex alternation
+             ‘‘
+                 NFA nl("\n");
+                 NFA* result = new NFA(nl * *$alternation);
+                 result->setAnchor(Lexis::head);
+                 delete $alternation;
+                 $$ = result;
+             ’’
+         | alternation dollar
+             ‘‘
+                 NFA nl("\n");
+                 NFA* result = new NFA(*$alternation * nl);
+                 result->setAnchor(Lexis::tail);
+                 delete $alternation;
+                 $$ = result;
+             ’’
+         | circumflex alternation dollar
+             ‘‘
+                 NFA nl("\n");
+                 NFA* result = new NFA(nl * *$alternation * nl);
+                 result->setAnchor(Lexis::both);
+                 delete $alternation;
+                 $$ = result;
+             ’’.
+     alternation =
+          alternative
+              ‘‘
+                  $$ = $alternative;
+              ’’
+          | alternation verticalBar alternative
+              ‘‘
+                  NFA* result = new NFA(*$alternation | *$alternative);
+                  delete $alternation;
+                  delete $alternative;
+                  $$ = result;
+              ’’.
+     alternative =
+              ‘‘
+                  $$ = new NFA();
+              ’’
+          | alternative item
+              ‘‘
+                  NFA* result = new NFA(*$alternative * *$item);
+                  delete $alternative;
+                  delete $item;
+                  $$ = result;
+              ’’.
+     item =
+         questionMark
+             ‘‘
+                 CharacterSet set;
+                 set += ’\n’;
+                 set = ~set;
+                 $$ = new NFA(set);
+             ’’
+         | identifier
+             ‘‘
+                 HashTable<string,NFA*>::const_iterator ptr =
+                      definitionsTable.find($identifier.getLexeme()), null;
+                 NFA* result = 0;
+                 if (ptr == null)
+                 {
+                      cerr << "Error: " << $identifier.getLexeme() <<
+                          " not defined.\n";
+                      result = new NFA();
+                 }
+                 else
+                      result = new NFA(**ptr);
+                 $$ = result;
+             ’’
+         | stringT
+             ‘‘
+                 string src($stringT.getLexeme());
+
+                   $$ = new NFA(EscapeSequence::decode(
+                       src.substr(1, src.size()-2)));
+             ’’
+         | characterClass
+             ‘‘
+                 string src($characterClass.getLexeme());
+                 bool complement = false;
+
+                 assert(src.size() >= 2);
+                 if (src[1U] == ’!’)
+                 {
+                      complement = true;
+                      src = EscapeSequence::decode(src.substr(2, src.size()-3));
+                 }
+                 else
+                      src = EscapeSequence::decode(src.substr(1, src.size()-2));
+
+                 CharacterSet dst;
+                 int16_t lastc = -1;
+                 string::iterator p(src.begin()), lim(src.end());
+                 while (p != lim)
+                 {
+                     char c = *p++;
+                     if (c == ’-’ && lastc >= 0)
+                     {
+                          if (p != lim)
+                          {
+                              c = *p++;
+                              for (uint8_t i = lastc + 1U;
+                                      i <= static_cast<uint8_t>(c); i++)
+                                  dst += i;
+                              lastc = -1;
+                          }
+                          else
+                          {
+                              dst += ’-’;
+                              lastc = ’-’;
+                          }
+                     }
+                     else
+                     {
+                          dst += c;
+                          lastc = static_cast<uint8_t>(c);
+                     }
+                 }
+                 if (complement)
+                     dst = ~dst;
+                 $$ = new NFA(dst);
+             ’’
+         | leftParenthesis expression rightParenthesis
+             ‘‘
+                 $$ = $expression;
+             ’’
+         | leftBracket expression rightBracket
+             ‘‘
+                 NFA* result = new NFA(!*$expression);
+                 delete $expression;
+                 $$ = result;
+             ’’
+         | leftBrace expression rightBrace
+             ‘‘
+                 NFA* result = new NFA(~*$expression);
+                 delete $expression;
+                 $$ = result;
+             ’’.

@@ -1,0 +1,298 @@
+Language:
+     LomaGrammar.
+Preamble:
+     ‘‘
+#include <string>
+#include "Loma/ParserData.h"
+#include "Loma/ItemAttributes.h"
+
+  using namespace Loma;
+     ’’ .
+Terminals:
+     "lexistab.h".
+Nonterminals:
+     codeFragment (fragment), codeModule (module),
+     codeSequence (fragmentList),
+     endDirective, exampleDirective, exampleModule (module),
+     file (file), fileModule (module),
+     includeFragment (fragment), includeDirective (text),
+     module (module), moduleList (moduleList),
+     string (text), textFragment (fragment),
+     textModule (module), textSequence (fragmentList),
+     wordList (wordList), ws (text).
+Start:
+     file.
+Productions:
+     file =
+         endOfLine moduleList
+             ‘‘
+                 File* result = new File($moduleList);
+                 assert(result != 0);
+                 result->crossReference();
+                 $$ = result;
+             ’’.
+     moduleList =
+             ‘‘
+                 ModuleList* const result = new ModuleList();
+                 assert(result != 0);
+                 $$ = result;
+             ’’
+         | moduleList module
+             ‘‘
+                 $moduleList->push_back($module);
+                 $$ = $moduleList;
+             ’’.
+     module =
+         textModule
+             ‘‘
+                 $$ = $textModule;
+             ’’
+         | fileModule
+             ‘‘
+                 $$ = $fileModule;
+                 cerr << ".";
+             ’’
+         | codeModule
+             ‘‘
+                 $$ = $codeModule;
+                 cerr << ".";
+             ’’
+         | exampleModule
+             ‘‘
+                 $$ = $exampleModule;
+             ’’.
+     textModule =
+         textSequence
+             ‘‘
+                 Module* const result = new TextModule($textSequence);
+                 assert(result != 0);
+                 $$ = result;
+             ’’.
+     textSequence =
+         textFragment
+             ‘‘
+                 FragmentList* const result = new FragmentList();
+                 assert(result != 0);
+                 result->push_back($textFragment);
+                 $$ = result;
+             ’’.
+     textFragment =
+         ws endOfLine
+             ‘‘
+                 Fragment* const result = new TextFragment($ws);
+                 assert(result != 0);
+                 $$ = result;
+             ’’
+         | ws wordList endOfLine
+             ‘‘
+                 Fragment* const result = new TextFragment($ws + $wordList.text);
+                 assert(result != 0);
+                 $$ = result;
+             ’’.
+     wordList =
+         word
+              ‘‘
+                  WordList result;
+                  result.text = $word.getLexeme();
+                  $$ = result;
+              ’’
+         | quotedString
+              ‘‘
+                  WordList result;
+                  result.text = $quotedString.getLexeme();
+                  $$ = result;
+              ’’
+         | atSign
+             ‘‘
+                 WordList result;
+                 result.text = "@";
+                 $$ = result;
+                 ’’
+         | atString
+             ‘‘
+                 WordList result;
+                 string tag = $atString.getLexeme();
+                 tag = tag.substr(2, tag.size()-3);
+                 result.text = tag;
+                 result.tag = tag;
+                 $$ = result;
+             ’’
+         | wordList word
+             ‘‘
+                 WordList result = $wordList;
+                 result.text += $word.getLexeme();
+                 $$ = result;
+             ’’
+         | wordList quotedString
+             ‘‘
+                 WordList result = $wordList;
+                 result.text += $quotedString.getLexeme();
+                 $$ = result;
+             ’’
+         | wordList atSign
+             ‘‘
+                 WordList result = $wordList;
+                 result.text += "@";
+                 $$ = result;
+             ’’
+         | wordList atString
+             ‘‘
+                 WordList result = $wordList;
+                 string tag = $atString.getLexeme();
+                 tag = tag.substr(2, tag.size()-3);
+                 result.text += tag;
+                 result.tag = tag;
+                 $$ = result;
+             ’’
+         | wordList blank
+             ‘‘
+                  WordList result = $wordList;
+                  result.text += $blank.getLexeme();
+                  $$ = result;
+             ’’
+         | wordList tab
+             ‘‘
+                  WordList result = $wordList;
+                  result.text += $tab.getLexeme();
+                  $$ = result;
+             ’’.
+     codeSequence =
+             ‘‘
+                 FragmentList* const result = new FragmentList();
+                 assert(result != 0);
+                 $$ = result;
+             ’’
+         | codeSequence codeFragment
+             ‘‘
+                 $codeSequence->push_back($codeFragment);
+                 $$ = $codeSequence;
+             ’’
+         | codeSequence includeFragment
+             ‘‘
+                 $codeSequence->push_back($includeFragment);
+                 $$ = $codeSequence;
+             ’’.
+     codeFragment =
+         ws endOfLine
+             ‘‘
+                 Fragment* const result =
+                     new CodeFragment($endOfLine.getLineNumber(), getWidth($ws),
+                     "", "", "");
+                 assert(result != 0);
+                 $$ = result;
+             ’’
+         | ws wordList endOfLine
+             ‘‘
+                 Fragment* const result =
+                     new CodeFragment($endOfLine.getLineNumber(), getWidth($ws),
+                     $wordList.text, "", $wordList.tag);
+                 assert(result != 0);
+                 $$ = result;
+             ’’
+         | ws wordList atLabel ws string ws endOfLine
+             ‘‘
+                 Fragment* const result =
+                     new CodeFragment($endOfLine.getLineNumber(), getWidth($ws),
+                     $wordList.text, $string#1, $wordList.tag);
+                 assert(result != 0);
+                 $$ = result;
+             ’’
+         | ws wordList atSymbol ws string ws endOfLine
+             ‘‘
+                 Fragment* const result =
+                     new CodeFragment($endOfLine.getLineNumber(), getWidth($ws),
+                     $wordList.text, "", $string#1);
+                 assert(result != 0);
+                 $$ = result;
+             ’’
+         | ws wordList atLabel ws string
+                 ws atSymbol ws string ws endOfLine
+             ‘‘
+                 Fragment* const result =
+                     new CodeFragment($endOfLine.getLineNumber(), getWidth($ws),
+                     $wordList.text, $string#1, $string#2);
+                 assert(result != 0);
+                 $$ = result;
+             ’’
+         | ws wordList atSymbol ws string
+                 ws atLabel ws string ws endOfLine
+             ‘‘
+                 Fragment* const result =
+                     new CodeFragment($endOfLine.getLineNumber(), getWidth($ws),
+                     $wordList.text, $string#2, $string#1);
+                 assert(result != 0);
+                 $$ = result;
+             ’’.
+     includeFragment =
+         ws includeDirective
+             ‘‘
+                 Fragment* const result =
+                     new IncludeFragment(getWidth($ws), $includeDirective);
+                 assert(result != 0);
+                 $$ = result;
+             ’’.
+     includeDirective =
+         atInclude ws string ws endOfLine
+             ‘‘
+                 $$ = $string;
+             ’’.
+     fileModule =
+         ws atFile ws string ws endOfLine codeSequence endDirective
+             ‘‘
+                 Module* const result =
+                     new FileModule($string, $codeSequence);
+                 assert(result != 0);
+                 $$ = result;
+             ’’
+         | ws atFile ws string ws string ws endOfLine codeSequence endDirective
+             ‘‘
+                 Module* const result =
+                     new FileModule($string#1, $string#2, $codeSequence);
+                 assert(result != 0);
+                 $$ = result;
+             ’’.
+     codeModule =
+         ws atDefine ws string ws endOfLine codeSequence endDirective
+             ‘‘
+                 Module* const result =
+                     new CodeModule($string, $codeSequence);
+                 assert(result != 0);
+                 $$ = result;
+             ’’
+         | ws atDefine ws string ws string ws endOfLine codeSequence endDirective
+             ‘‘
+                 Module* const result =
+                     new CodeModule($string#1, $string#2, $codeSequence);
+                 assert(result != 0);
+                 $$ = result;
+             ’’.
+     exampleModule =
+         exampleDirective codeSequence endDirective
+             ‘‘
+                 Module* const result =
+                     new ExampleModule($codeSequence);
+                 assert(result != 0);
+                 $$ = result;
+             ’’.
+     exampleDirective =
+         ws atExample ws endOfLine.
+     endDirective =
+         ws atEnd ws endOfLine.
+     string =
+         quotedString
+             ‘‘
+                 string s = $quotedString.getLexeme();
+                 $$ = s.substr(1, s.size()-2);
+             ’’.
+     ws =
+             ‘‘
+                 $$ = "";
+             ’’
+         | ws blank
+             ‘‘
+                 $$ = $ws + " ";
+             ’’
+         | ws tab
+             ‘‘
+                 $$ = $ws + "\t";
+             ’’.
